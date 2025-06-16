@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="intervals_array">
+        <item>1m</item>
+        <item>5m</item>
+        <item>15m</item>
+        <item>1h</item>
+        <item>1d</item>
+        <item>1w</item>
+        <item>1mo</item>
+    </string-array>
+</resources> 
