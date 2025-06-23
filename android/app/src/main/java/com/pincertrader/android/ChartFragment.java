@@ -328,30 +328,38 @@ public class ChartFragment extends Fragment {
             public void onChartSingleTapped(android.view.MotionEvent me) {
                 if (drawMode) {
                     try {
-                        com.github.mikephil.charting.highlight.Highlight highlight = candleChart.getHighlightByTouchPoint(me.getX(), me.getY());
-                        if (highlight != null) {
-                            float x = highlight.getX();
-                            float y = highlight.getY();
-                            
-                            if (tempLinePoint == 0) {
-                                // First tap - store first point
-                                tempLine[0] = x;
-                                tempLine[1] = y;
-                                tempLinePoint = 1;
-                                Toast.makeText(getContext(), "First point set. Tap again for second point.", Toast.LENGTH_SHORT).show();
-                            } else {
-                                // Second tap - complete the line
-                                tempLine[2] = x;
-                                tempLine[3] = y;
-                                drawnLines.add(new float[]{tempLine[0], tempLine[1], tempLine[2], tempLine[3]});
-                                drawingColors.add(drawingColor); // Store color for this drawing
-                                tempLinePoint = 0;
-                                tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
-                                updateCharts(lastBars);
-                                Toast.makeText(getContext(), "Line drawn!", Toast.LENGTH_SHORT).show();
-                            }
+                        // Get the transformer for the left Y axis to convert coordinates properly
+                        com.github.mikephil.charting.utils.Transformer transformer = candleChart.getTransformer(YAxis.AxisDependency.LEFT);
+                        
+                        // Convert screen coordinates to chart coordinates using the transformer
+                        float[] pts = new float[2];
+                        pts[0] = me.getX();
+                        pts[1] = me.getY();
+                        transformer.pixelsToValue(pts);
+                        
+                        float x = pts[0];
+                        float y = pts[1];
+                        
+                        // Clamp coordinates to chart bounds
+                        x = Math.max(candleChart.getXChartMin(), Math.min(candleChart.getXChartMax(), x));
+                        y = Math.max(candleChart.getYChartMin(), Math.min(candleChart.getYChartMax(), y));
+                        
+                        if (tempLinePoint == 0) {
+                            // First tap - store first point
+                            tempLine[0] = x;
+                            tempLine[1] = y;
+                            tempLinePoint = 1;
+                            Toast.makeText(getContext(), "First point set. Tap again for second point.", Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(getContext(), "Please tap on a valid chart point.", Toast.LENGTH_SHORT).show();
+                            // Second tap - complete the line
+                            tempLine[2] = x;
+                            tempLine[3] = y;
+                            drawnLines.add(new float[]{tempLine[0], tempLine[1], tempLine[2], tempLine[3]});
+                            drawingColors.add(drawingColor); // Store color for this drawing
+                            tempLinePoint = 0;
+                            tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
+                            updateCharts(lastBars);
+                            Toast.makeText(getContext(), "Line drawn!", Toast.LENGTH_SHORT).show();
                         }
                     } catch (Exception e) {
                         Log.e("ChartFragment", "Error handling chart tap: " + e.getMessage());
