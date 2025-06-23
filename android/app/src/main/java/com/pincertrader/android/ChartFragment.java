@@ -28,6 +28,8 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.core.content.ContextCompat;
 import android.content.res.Configuration;
+import androidx.cardview.widget.CardView;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import com.github.mikephil.charting.charts.BarChart;
 import com.github.mikephil.charting.charts.CandleStickChart;
@@ -85,12 +87,18 @@ public class ChartFragment extends Fragment {
     private String currentPeriod = "1d";
     private String currentInterval = null;
     private List<StockDataResponse.StockBar> lastBars = null;
-
-    private LinearLayout infoHeaderLayout, infoDetailsLayout;
+    private CardView infoHeaderLayout, infoDetailsLayout;
     private ImageView infoExpandIcon;
     private boolean infoExpanded = true;
 
-    private ImageView emaSettingsIcon, macdSettingsIcon, rsiSettingsIcon;
+    // FAB and popup controls
+    private FloatingActionButton indicatorFab;
+    private CardView indicatorPopup;
+    private TextView indicatorEma, indicatorMacd, indicatorRsi, indicatorDrawing;
+    private boolean popupVisible = false;
+
+    // Indicator states
+    private boolean emaEnabled = false, macdEnabled = false, rsiEnabled = false;
     private int emaPeriod = 10;
     private int macdFast = 12, macdSlow = 26;
     private int rsiPeriod = 14;
@@ -98,8 +106,6 @@ public class ChartFragment extends Fragment {
     private String lastInterval = "1d";
 
     private ImageButton searchButton;
-    private ImageButton emaIcon, macdIcon, rsiIcon, drawIcon;
-    private boolean emaEnabled = false, macdEnabled = false, rsiEnabled = false;
 
     // Replace single EMA config with a list for multiple EMAs
     public static class EMAConfig {
@@ -136,6 +142,15 @@ public class ChartFragment extends Fragment {
         infoHeaderLayout = view.findViewById(R.id.infoHeaderLayout);
         infoDetailsLayout = view.findViewById(R.id.infoDetailsLayout);
         infoExpandIcon = view.findViewById(R.id.infoExpandIcon);
+        
+        // Initialize FAB and popup
+        indicatorFab = view.findViewById(R.id.indicatorFab);
+        indicatorPopup = view.findViewById(R.id.indicatorPopup);
+        indicatorEma = view.findViewById(R.id.indicatorEma);
+        indicatorMacd = view.findViewById(R.id.indicatorMacd);
+        indicatorRsi = view.findViewById(R.id.indicatorRsi);
+        indicatorDrawing = view.findViewById(R.id.indicatorDrawing);
+
         infoHeaderLayout.setOnClickListener(v -> {
             infoExpanded = !infoExpanded;
             infoDetailsLayout.setVisibility(infoExpanded ? View.VISIBLE : View.GONE);
@@ -144,57 +159,12 @@ public class ChartFragment extends Fragment {
         infoDetailsLayout.setVisibility(View.VISIBLE);
         infoExpandIcon.setImageResource(android.R.drawable.arrow_down_float);
 
-        emaIcon = view.findViewById(R.id.emaIcon);
-        macdIcon = view.findViewById(R.id.macdIcon);
-        rsiIcon = view.findViewById(R.id.rsiIcon);
-        drawIcon = view.findViewById(R.id.drawIcon);
-
-        emaIcon.setOnClickListener(v -> {
-            emaEnabled = !emaEnabled;
-            emaIcon.setAlpha(emaEnabled ? 1.0f : 0.4f);
-            updateCharts(lastBars);
-        });
-        emaIcon.setOnLongClickListener(v -> {
-            showEmaSettingsDialog();
-            return true;
-        });
-        macdIcon.setOnClickListener(v -> {
-            macdEnabled = !macdEnabled;
-            macdIcon.setAlpha(macdEnabled ? 1.0f : 0.4f);
-            updateCharts(lastBars);
-        });
-        macdIcon.setOnLongClickListener(v -> {
-            showMacdSettingsDialog();
-            return true;
-        });
-        rsiIcon.setOnClickListener(v -> {
-            rsiEnabled = !rsiEnabled;
-            rsiIcon.setAlpha(rsiEnabled ? 1.0f : 0.4f);
-            updateCharts(lastBars);
-        });
-        rsiIcon.setOnLongClickListener(v -> {
-            showRsiSettingsDialog();
-            return true;
-        });
-        drawIcon.setOnClickListener(v -> {
-            drawMode = !drawMode;
-            drawIcon.setAlpha(drawMode ? 1.0f : 0.4f);
-            tempLinePoint = 0;
-            if (!drawMode) {
-                tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
-            }
-        });
-        // Set initial alpha
-        emaIcon.setAlpha(0.4f);
-        macdIcon.setAlpha(0.4f);
-        rsiIcon.setAlpha(0.4f);
-        drawIcon.setAlpha(0.4f);
-
         setupCandleChart();
         setupVolumeChart();
         setupButtons();
         setupIntervalSpinner();
         setupChartSync();
+        setupFabAndPopup();
 
         // Show prompt until user searches
         companyNameTextView.setText("");
@@ -357,20 +327,37 @@ public class ChartFragment extends Fragment {
             @Override
             public void onChartSingleTapped(android.view.MotionEvent me) {
                 if (drawMode) {
-                    float x = candleChart.getHighlightByTouchPoint(me.getX(), me.getY()).getX();
-                    float y = candleChart.getHighlightByTouchPoint(me.getX(), me.getY()).getY();
-                    if (tempLinePoint == 0) {
-                        tempLine[0] = x;
-                        tempLine[1] = y;
-                        tempLinePoint = 1;
-                    } else {
-                        tempLine[2] = x;
-                        tempLine[3] = y;
-                        drawnLines.add(new float[]{tempLine[0], tempLine[1], tempLine[2], tempLine[3]});
-                        drawingColors.add(drawingColor); // Store color for this drawing
+                    try {
+                        com.github.mikephil.charting.highlight.Highlight highlight = candleChart.getHighlightByTouchPoint(me.getX(), me.getY());
+                        if (highlight != null) {
+                            float x = highlight.getX();
+                            float y = highlight.getY();
+                            
+                            if (tempLinePoint == 0) {
+                                // First tap - store first point
+                                tempLine[0] = x;
+                                tempLine[1] = y;
+                                tempLinePoint = 1;
+                                Toast.makeText(getContext(), "First point set. Tap again for second point.", Toast.LENGTH_SHORT).show();
+                            } else {
+                                // Second tap - complete the line
+                                tempLine[2] = x;
+                                tempLine[3] = y;
+                                drawnLines.add(new float[]{tempLine[0], tempLine[1], tempLine[2], tempLine[3]});
+                                drawingColors.add(drawingColor); // Store color for this drawing
+                                tempLinePoint = 0;
+                                tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
+                                updateCharts(lastBars);
+                                Toast.makeText(getContext(), "Line drawn!", Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(getContext(), "Please tap on a valid chart point.", Toast.LENGTH_SHORT).show();
+                        }
+                    } catch (Exception e) {
+                        Log.e("ChartFragment", "Error handling chart tap: " + e.getMessage());
+                        Toast.makeText(getContext(), "Error drawing line. Please try again.", Toast.LENGTH_SHORT).show();
                         tempLinePoint = 0;
                         tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
-                        updateCharts(lastBars);
                     }
                 }
             }
@@ -622,6 +609,7 @@ public class ChartFragment extends Fragment {
         candleDataSet.setDrawValues(false);
         CandleData candleData = new CandleData(candleDataSet);
         LineData lineData = new LineData();
+
         // Draw multiple EMAs
         for (EMAConfig config : emaConfigs) {
             List<Entry> emaEntries = calculateEMAEntries(bars, config.period);
@@ -633,6 +621,7 @@ public class ChartFragment extends Fragment {
                 lineData.addDataSet(emaDataSet);
             }
         }
+
         // MACD (user-configurable fast/slow)
         int macdMin = Math.max(macdFast, macdSlow);
         if (macdEnabled && bars.size() >= macdMin) {
@@ -649,6 +638,7 @@ public class ChartFragment extends Fragment {
                 if (i >= macdMin - 1) macdEntries.add(new Entry(i, emaFast[i] - emaSlow[i]));
             }
         }
+
         // RSI (user-configurable period)
         if (rsiEnabled && bars.size() >= rsiPeriod + 1) {
             for (int i = rsiPeriod; i < closes.length; i++) {
@@ -663,6 +653,7 @@ public class ChartFragment extends Fragment {
                 rsiEntries.add(new Entry(i, rsi));
             }
         }
+
         // Add MACD overlay if enabled
         if (macdEnabled && !macdEntries.isEmpty()) {
             LineDataSet macdDataSet = new LineDataSet(macdEntries, "MACD");
@@ -671,6 +662,7 @@ public class ChartFragment extends Fragment {
             macdDataSet.setDrawCircles(false);
             lineData.addDataSet(macdDataSet);
         }
+
         // Add RSI overlay if enabled
         if (rsiEnabled && !rsiEntries.isEmpty()) {
             LineDataSet rsiDataSet = new LineDataSet(rsiEntries, "RSI");
@@ -679,6 +671,7 @@ public class ChartFragment extends Fragment {
             rsiDataSet.setDrawCircles(false);
             lineData.addDataSet(rsiDataSet);
         }
+
         // Draw trendlines as LineDataSet overlays
         for (int i = 0; i < drawnLines.size(); i++) {
             float[] line = drawnLines.get(i);
@@ -692,6 +685,7 @@ public class ChartFragment extends Fragment {
             trendLineDataSet.setForm(LegendForm.NONE);
             lineData.addDataSet(trendLineDataSet);
         }
+
         CombinedData combinedData = new CombinedData();
         combinedData.setData(candleData);
         combinedData.setData(lineData);
@@ -721,6 +715,90 @@ public class ChartFragment extends Fragment {
             if (i >= period - 1) emaEntries.add(new Entry(i, ema));
         }
         return emaEntries;
+    }
+
+    private void setupFabAndPopup() {
+        // FAB click to toggle popup
+        indicatorFab.setOnClickListener(v -> {
+            popupVisible = !popupVisible;
+            indicatorPopup.setVisibility(popupVisible ? View.VISIBLE : View.GONE);
+        });
+
+        // Indicator toggles
+        indicatorEma.setOnClickListener(v -> {
+            emaEnabled = !emaEnabled;
+            indicatorEma.setAlpha(emaEnabled ? 1.0f : 0.4f);
+            updateCharts(lastBars);
+        });
+        indicatorEma.setOnLongClickListener(v -> {
+            showEmaSettingsDialog();
+            return true;
+        });
+
+        indicatorMacd.setOnClickListener(v -> {
+            macdEnabled = !macdEnabled;
+            indicatorMacd.setAlpha(macdEnabled ? 1.0f : 0.4f);
+            updateCharts(lastBars);
+        });
+        indicatorMacd.setOnLongClickListener(v -> {
+            showMacdSettingsDialog();
+            return true;
+        });
+
+        indicatorRsi.setOnClickListener(v -> {
+            rsiEnabled = !rsiEnabled;
+            indicatorRsi.setAlpha(rsiEnabled ? 1.0f : 0.4f);
+            updateCharts(lastBars);
+        });
+        indicatorRsi.setOnLongClickListener(v -> {
+            showRsiSettingsDialog();
+            return true;
+        });
+
+        indicatorDrawing.setOnClickListener(v -> {
+            drawMode = !drawMode;
+            indicatorDrawing.setAlpha(drawMode ? 1.0f : 0.4f);
+            tempLinePoint = 0;
+            if (!drawMode) {
+                tempLine[0] = tempLine[1] = tempLine[2] = tempLine[3] = 0;
+            }
+            // Hide popup when drawing mode is activated
+            popupVisible = false;
+            indicatorPopup.setVisibility(View.GONE);
+            
+            // Show feedback to user
+            if (drawMode) {
+                Toast.makeText(getContext(), "Drawing mode enabled. Tap two points on the chart to draw a line.", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(getContext(), "Drawing mode disabled.", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // Add long press on drawing to clear all lines
+        indicatorDrawing.setOnLongClickListener(v -> {
+            if (drawnLines.size() > 0) {
+                new AlertDialog.Builder(getContext())
+                    .setTitle("Clear Drawings")
+                    .setMessage("Do you want to clear all drawn lines?")
+                    .setPositiveButton("Yes", (dialog, which) -> {
+                        drawnLines.clear();
+                        drawingColors.clear();
+                        updateCharts(lastBars);
+                        Toast.makeText(getContext(), "All drawings cleared.", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("No", null)
+                    .show();
+            } else {
+                Toast.makeText(getContext(), "No drawings to clear.", Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+
+        // Set initial alpha for indicators
+        indicatorEma.setAlpha(0.4f);
+        indicatorMacd.setAlpha(0.4f);
+        indicatorRsi.setAlpha(0.4f);
+        indicatorDrawing.setAlpha(0.4f);
     }
 
     // Dialog for managing multiple EMAs
@@ -877,67 +955,6 @@ public class ChartFragment extends Fragment {
         builder.show();
     }
 
-    private void showMacdSettingsDialog() {
-        LinearLayout layout = new LinearLayout(getContext());
-        layout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        final EditText fastInput = new EditText(getContext());
-        fastInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        fastInput.setText(String.valueOf(macdFast));
-        fastInput.setLayoutParams(params);
-        final EditText slowInput = new EditText(getContext());
-        slowInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        slowInput.setText(String.valueOf(macdSlow));
-        slowInput.setLayoutParams(params);
-        TextView fastLabel = new TextView(getContext());
-        fastLabel.setText("Fast:");
-        fastLabel.setLayoutParams(params);
-        TextView slowLabel = new TextView(getContext());
-        slowLabel.setText("  Slow:");
-        slowLabel.setLayoutParams(params);
-        layout.addView(fastLabel);
-        layout.addView(fastInput);
-        layout.addView(slowLabel);
-        layout.addView(slowInput);
-        new AlertDialog.Builder(getContext())
-                .setTitle("Set MACD Periods")
-                .setView(layout)
-                .setPositiveButton("OK", (dialog, which) -> {
-                    try {
-                        macdFast = Integer.parseInt(fastInput.getText().toString());
-                    } catch (Exception ignored) {
-                        Log.e("ChartFragment", "Invalid MACD fast period input: " + fastInput.getText().toString());
-                    }
-                    try {
-                        macdSlow = Integer.parseInt(slowInput.getText().toString());
-                    } catch (Exception ignored) {
-                        Log.e("ChartFragment", "Invalid MACD slow period input: " + slowInput.getText().toString());
-                    }
-                    updateCharts(lastBars);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void showRsiSettingsDialog() {
-        final EditText input = new EditText(getContext());
-        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        input.setText(String.valueOf(rsiPeriod));
-        new AlertDialog.Builder(getContext())
-                .setTitle("Set RSI Period")
-                .setView(input)
-                .setPositiveButton("OK", (dialog, which) -> {
-                    try {
-                        rsiPeriod = Integer.parseInt(input.getText().toString());
-                    } catch (Exception ignored) {
-                        Log.e("ChartFragment", "Invalid RSI period input: " + input.getText().toString());
-                    }
-                    updateCharts(lastBars);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
     private void showColorPickerDialog() {
         String[] items = {"EMA Color", "MACD Color", "RSI Color", "Drawing Color"};
         new AlertDialog.Builder(getContext())
@@ -1042,5 +1059,66 @@ public class ChartFragment extends Fragment {
 
     interface ColorPickerCallback {
         void onColorSelected(int color);
+    }
+
+    private void showMacdSettingsDialog() {
+        LinearLayout layout = new LinearLayout(getContext());
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        final EditText fastInput = new EditText(getContext());
+        fastInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        fastInput.setText(String.valueOf(macdFast));
+        fastInput.setLayoutParams(params);
+        final EditText slowInput = new EditText(getContext());
+        slowInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        slowInput.setText(String.valueOf(macdSlow));
+        slowInput.setLayoutParams(params);
+        TextView fastLabel = new TextView(getContext());
+        fastLabel.setText("Fast:");
+        fastLabel.setLayoutParams(params);
+        TextView slowLabel = new TextView(getContext());
+        slowLabel.setText("  Slow:");
+        slowLabel.setLayoutParams(params);
+        layout.addView(fastLabel);
+        layout.addView(fastInput);
+        layout.addView(slowLabel);
+        layout.addView(slowInput);
+        new AlertDialog.Builder(getContext())
+                .setTitle("Set MACD Periods")
+                .setView(layout)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    try {
+                        macdFast = Integer.parseInt(fastInput.getText().toString());
+                    } catch (Exception ignored) {
+                        Log.e("ChartFragment", "Invalid MACD fast period input: " + fastInput.getText().toString());
+                    }
+                    try {
+                        macdSlow = Integer.parseInt(slowInput.getText().toString());
+                    } catch (Exception ignored) {
+                        Log.e("ChartFragment", "Invalid MACD slow period input: " + slowInput.getText().toString());
+                    }
+                    updateCharts(lastBars);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showRsiSettingsDialog() {
+        final EditText input = new EditText(getContext());
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(rsiPeriod));
+        new AlertDialog.Builder(getContext())
+                .setTitle("Set RSI Period")
+                .setView(input)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    try {
+                        rsiPeriod = Integer.parseInt(input.getText().toString());
+                    } catch (Exception ignored) {
+                        Log.e("ChartFragment", "Invalid RSI period input: " + input.getText().toString());
+                    }
+                    updateCharts(lastBars);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 } 
